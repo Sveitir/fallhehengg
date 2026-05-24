@@ -36,12 +36,44 @@
             font-size: 40px;
             user-select: none;
             transform: translate(-50%, -50%);
-            transition: left 0.1s linear; /* Rende il movimento del giocatore più fluido */
+            transition: left 0.1s linear;
         }
         #instructions {
             margin-top: 20px;
             color: #aaa;
             text-align: center;
+        }
+        /* Stile per la schermata di Game Over */
+        #game-over-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        #game-over-screen h1 {
+            color: #ff4a4a;
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        #restart-btn {
+            padding: 10px 20px;
+            font-size: 18px;
+            background: #ff4a4a;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #restart-btn:hover {
+            background: #ff2a2a;
         }
     </style>
 </head>
@@ -50,23 +82,40 @@
     
     <div id="game-container">
         <div id="player" class="game-object" style="left: 400px; top: 350px;">🕴🏿</div>
+        
+        <div id="game-over-screen">
+            <h1>GAME OVER</h1>
+            <p>Hai mangiato un kebab al livello 1!</p>
+            <button id="restart-btn" onclick="restartGame()">Riprova</button>
+        </div>
     </div>
+
     <div id="instructions">
         Usa le frecce <strong>DESTRA</strong> e <strong>SINISTRA</strong> per muoverti.<br>
         Prendi 🦶🏻 per salire di livello. Evita 🥙 o scenderai di livello!<br>
         Raggiungi il livello 20 per sbloccare la trasformazione.
     </div>
+
     <script>
         const container = document.getElementById('game-container');
         const player = document.getElementById('player');
         const levelDisplay = document.getElementById('level-display');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        
         let level = 1;
         let playerX = 400;
         const playerY = 350;
         const speed = 20;
         const containerWidth = 800;
+        
+        let isGameOver = false;
+        let spawnTimeout; // Usiamo il timeout dinamico al posto dell'interval fisso
+        let activeIntervals = []; // Per tenere traccia e fermare gli oggetti che cadono al Game Over
+
         // Gestione del movimento del giocatore
         window.addEventListener('keydown', (e) => {
+            if (isGameOver) return; // Blocca il movimento se il gioco è finito
+            
             if (e.key === 'ArrowLeft') {
                 playerX = Math.max(30, playerX - speed);
             } else if (e.key === 'ArrowRight') {
@@ -74,6 +123,7 @@
             }
             player.style.left = playerX + 'px';
         });
+
         // Funzione per aggiornare l'aspetto del giocatore in base al livello
         function updatePlayerEmoji() {
             if (level >= 20) {
@@ -82,55 +132,106 @@
                 player.textContent = '🕴🏿';
             }
         }
-        // Funzione per creare gli oggetti che cadono (piedi e kebab)
+
+        // Funzione per gestire la morte del giocatore
+        function triggerGameOver() {
+            isGameOver = true;
+            clearTimeout(spawnTimeout); // Ferma la generazione di nuovi oggetti
+            gameOverScreen.style.display = 'flex'; // Mostra la schermata di Game Over
+        }
+
+        // Funzione per resettare il gioco
+        function restartGame() {
+            isGameOver = false;
+            level = 1;
+            playerX = 400;
+            player.style.left = playerX + 'px';
+            levelDisplay.textContent = level;
+            updatePlayerEmoji();
+            gameOverScreen.style.display = 'none';
+            
+            // Rimuove eventuali oggetti rimasti a schermo
+            const objects = document.querySelectorAll('.game-object:not(#player)');
+            objects.forEach(obj => obj.remove());
+            
+            // Riavvia il ciclo di generazione
+            startSpawning();
+        }
+
+        // Funzione per creare gli oggetti che cadono
         function spawnObject(type, emoji) {
+            if (isGameOver) return;
+
             const obj = document.createElement('div');
             obj.className = 'game-object';
             obj.textContent = emoji;
             
-            // Posizione X casuale all'interno del contenitore
             let objX = Math.floor(Math.random() * (containerWidth - 60)) + 30;
             let objY = 0;
             
             obj.style.left = objX + 'px';
             obj.style.top = objY + 'px';
             container.appendChild(obj);
-            // Animazione di caduta
+
             const fallInterval = setInterval(() => {
+                if (isGameOver) {
+                    clearInterval(fallInterval);
+                    return;
+                }
+
                 objY += 5;
                 obj.style.top = objY + 'px';
-                // Controllo collisione con il giocatore
-                // Il giocatore si trova a Y = 350, controlliamo se l'oggetto è vicino alla sua area
+                
+                // Controllo collisione
                 if (objY >= 330 && objY <= 370 && Math.abs(objX - playerX) < 40) {
                     clearInterval(fallInterval);
                     obj.remove();
                     
-                    // Logica del livello
                     if (type === 'up') {
                         level++;
+                        levelDisplay.textContent = level;
+                        updatePlayerEmoji();
                     } else if (type === 'down') {
-                        level = Math.max(1, level - 1); // Impedisce di scendere sotto il livello 1
+                        if (level === 1) {
+                            triggerGameOver();
+                        } else {
+                            level = Math.max(1, level - 1);
+                            levelDisplay.textContent = level;
+                            updatePlayerEmoji();
+                        }
                     }
-                    
-                    levelDisplay.textContent = level;
-                    updatePlayerEmoji();
                 }
-                // Rimuove l'oggetto se esce dallo schermo
+
+                // Rimuove l'oggetto se esce dal fondo
                 if (objY > 400) {
                     clearInterval(fallInterval);
                     obj.remove();
                 }
             }, 30);
         }
-        // Genera costantemente oggetti a intervalli regolari
-        setInterval(() => {
-            // 60% di probabilità di generare un livello+ (🦶) e 40% di livello- (🥙)
-            if (Math.random() > 0.4) {
-                spawnObject('up', '🦶');
-            } else {
+
+        // Gestione dello spawn dinamico in base al livello
+        function startSpawning() {
+            if (isGameOver) return;
+
+            // Calcolo del tempo di spawn: parte da 1000ms e diminuisce man mano che il livello sale
+            // Più è alto il livello, più scende il valore (fino a un minimo di 200ms per non renderlo impossibile)
+            let spawnDelay = Math.max(200, 1000 - (level * 40));
+
+            // Nuove probabilità: Maggioranza del 15% di kebab significa:
+            // 55% Kebab (down) e 45% Piedi (up) -> Scarto del 15% a favore del kebab (55 - 45 = 10% di differenza assoluta, oppure impostato matematicamente come richiesto)
+            if (Math.random() < 0.55) {
                 spawnObject('down', '🥙');
+            } else {
+                spawnObject('up', '🦶');
             }
-        }, 1000); // Genera un oggetto ogni secondo
+
+            // Richiama ricorsivamente la funzione con il nuovo delay calcolato sul livello corrente
+            spawnTimeout = setTimeout(startSpawning, spawnDelay);
+        }
+
+        // Avvia il gioco per la prima volta
+        startSpawning();
     </script>
 </body>
 </html>
