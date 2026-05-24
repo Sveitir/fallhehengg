@@ -43,7 +43,6 @@
             color: #aaa;
             text-align: center;
         }
-        /* Stile per la schermata di Game Over */
         #game-over-screen {
             display: none;
             position: absolute;
@@ -102,6 +101,35 @@
         const levelDisplay = document.getElementById('level-display');
         const gameOverScreen = document.getElementById('game-over-screen');
         
+        // --- CONFIGURAZIONE EFFETTI AUDIO ---
+        const sndLevelUp = new Audio('level-up.mp3');
+        const sndLevel20 = new Audio('level-20.mp3'); // Nuovo suono trasformazione
+        const sndLevelDown = new Audio('level-down.mp3');
+        const sndGameOver = new Audio('game-over.mp3');
+        const sndMove = new Audio('move.mp3');        // Nuovo suono movimento
+        
+        // Musica di sottofondo
+        const bgMusic = new Audio('background.mp3');
+        bgMusic.loop = true; // Imposta la musica in loop continuo
+        bgMusic.volume = 0.4; // Volume leggermente più basso per non coprire gli effetti
+
+        // Flag per verificare se la musica è già partita (evita riavvii continui)
+        let isMusicPlaying = false;
+
+        function playSound(audioObject) {
+            audioObject.currentTime = 0; 
+            audioObject.play().catch(e => console.log("Audio in attesa di interazione utente"));
+        }
+
+        function startBackgroundMusic() {
+            if (!isMusicPlaying) {
+                bgMusic.play()
+                    .then(() => { isMusicPlaying = true; })
+                    .catch(e => console.log("Musica bloccata, in attesa del primo input"));
+            }
+        }
+        // ------------------------------------
+
         let level = 1;
         let playerX = 400;
         const playerY = 350;
@@ -109,22 +137,30 @@
         const containerWidth = 800;
         
         let isGameOver = false;
-        let spawnTimeout; // Usiamo il timeout dinamico al posto dell'interval fisso
-        let activeIntervals = []; // Per tenere traccia e fermare gli oggetti che cadono al Game Over
+        let spawnTimeout; 
+        let reachedLevel20 = false; // Serve per far suonare il livello 20 una volta sola
 
-        // Gestione del movimento del giocatore
         window.addEventListener('keydown', (e) => {
-            if (isGameOver) return; // Blocca il movimento se il gioco è finito
+            if (isGameOver) return; 
             
+            // Fai partire la musica di sottofondo alla prima pressione di un tasto
+            startBackgroundMusic();
+
+            let moved = false;
             if (e.key === 'ArrowLeft') {
                 playerX = Math.max(30, playerX - speed);
+                moved = true;
             } else if (e.key === 'ArrowRight') {
                 playerX = Math.min(containerWidth - 30, playerX + speed);
+                moved = true;
             }
-            player.style.left = playerX + 'px';
+            
+            if (moved) {
+                player.style.left = playerX + 'px';
+                playSound(sndMove); // <-- Riproduce il suono del passo
+            }
         });
 
-        // Funzione per aggiornare l'aspetto del giocatore in base al livello
         function updatePlayerEmoji() {
             if (level >= 20) {
                 player.textContent = '🕺';
@@ -133,32 +169,35 @@
             }
         }
 
-        // Funzione per gestire la morte del giocatore
         function triggerGameOver() {
             isGameOver = true;
-            clearTimeout(spawnTimeout); // Ferma la generazione di nuovi oggetti
-            gameOverScreen.style.display = 'flex'; // Mostra la schermata di Game Over
+            clearTimeout(spawnTimeout); 
+            bgMusic.pause(); // Ferma la musica di sottofondo quando si perde
+            isMusicPlaying = false;
+            playSound(sndGameOver); 
+            gameOverScreen.style.display = 'flex'; 
         }
 
-        // Funzione per resettare il gioco
         function restartGame() {
             isGameOver = false;
             level = 1;
             playerX = 400;
+            reachedLevel20 = false; // Resetta il controllo del livello 20
             player.style.left = playerX + 'px';
             levelDisplay.textContent = level;
             updatePlayerEmoji();
             gameOverScreen.style.display = 'none';
             
-            // Rimuove eventuali oggetti rimasti a schermo
             const objects = document.querySelectorAll('.game-object:not(#player)');
             objects.forEach(obj => obj.remove());
             
-            // Riavvia il ciclo di generazione
+            // Riavvia la musica di sottofondo
+            bgMusic.currentTime = 0;
+            startBackgroundMusic();
+            
             startSpawning();
         }
 
-        // Funzione per creare gli oggetti che cadono
         function spawnObject(type, emoji) {
             if (isGameOver) return;
 
@@ -182,7 +221,6 @@
                 objY += 5;
                 obj.style.top = objY + 'px';
                 
-                // Controllo collisione
                 if (objY >= 330 && objY <= 370 && Math.abs(objX - playerX) < 40) {
                     clearInterval(fallInterval);
                     obj.remove();
@@ -191,18 +229,30 @@
                         level++;
                         levelDisplay.textContent = level;
                         updatePlayerEmoji();
+                        
+                        // Controllo se ha raggiunto il livello 20 per la prima volta
+                        if (level >= 20 && !reachedLevel20) {
+                            reachedLevel20 = true;
+                            playSound(sndLevel20); // <-- Suono speciale livello 20
+                        } else {
+                            playSound(sndLevelUp); // <-- Suono normale Level Up
+                        }
                     } else if (type === 'down') {
                         if (level === 1) {
                             triggerGameOver();
                         } else {
                             level = Math.max(1, level - 1);
+                            
+                            // Se scende sotto il livello 20, permette di riprodurre di nuovo l'effetto se ci ritorna
+                            if (level < 20) reachedLevel20 = false; 
+                            
                             levelDisplay.textContent = level;
                             updatePlayerEmoji();
+                            playSound(sndLevelDown); 
                         }
                     }
                 }
 
-                // Rimuove l'oggetto se esce dal fondo
                 if (objY > 400) {
                     clearInterval(fallInterval);
                     obj.remove();
@@ -210,27 +260,20 @@
             }, 30);
         }
 
-        // Gestione dello spawn dinamico in base al livello
         function startSpawning() {
             if (isGameOver) return;
 
-            // Calcolo del tempo di spawn: parte da 1000ms e diminuisce man mano che il livello sale
-            // Più è alto il livello, più scende il valore (fino a un minimo di 200ms per non renderlo impossibile)
             let spawnDelay = Math.max(200, 1000 - (level * 40));
 
-            // Nuove probabilità: Maggioranza del 15% di kebab significa:
-            // 55% Kebab (down) e 45% Piedi (up) -> Scarto del 15% a favore del kebab (55 - 45 = 10% di differenza assoluta, oppure impostato matematicamente come richiesto)
             if (Math.random() < 0.55) {
                 spawnObject('down', '🥙');
             } else {
                 spawnObject('up', '🦶');
             }
 
-            // Richiama ricorsivamente la funzione con il nuovo delay calcolato sul livello corrente
             spawnTimeout = setTimeout(startSpawning, spawnDelay);
         }
 
-        // Avvia il gioco per la prima volta
         startSpawning();
     </script>
 </body>
